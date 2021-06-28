@@ -1,13 +1,17 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"html/template"
 	"io/ioutil"
 	"log"
+	"os"
+	"regexp"
+
+	"strings"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
@@ -40,8 +44,11 @@ func main() {
 	log.Println(keyValueMap)
 
 	mappedSecretMap := keyMapping(keyValueMap, secretConfig.SecretKeys)
-	confFile := readFile("application.yml")
-	log.Println(makingTemplate(string(confFile), mappedSecretMap))
+	// confFile := readFile("application.yml")
+	// log.Println(makingTemplate(string(confFile), mappedSecretMap))
+
+	resultByte := makingTemplate("application.yml", mappedSecretMap)
+	log.Println("result \n", resultByte.String())
 
 }
 
@@ -66,15 +73,39 @@ func keyMapping(secretMap map[string]interface{}, configMap map[string]string) m
 	return keyValueMap
 }
 
-func makingTemplate(a string, b map[string]interface{}) string {
-	tmpl := template.Must(template.New("").Parse(a))
-	buf := &bytes.Buffer{}
-	err := tmpl.Execute(buf, b)
+func makingTemplate(a string, b map[string]interface{}) bytes.Buffer {
+
+	var bt bytes.Buffer
+
+	file, err := os.Open(a)
+	defer file.Close()
+
 	if err != nil {
-		panic(err)
+		fmt.Println(err)
+	} else {
+		scanner := bufio.NewScanner(file)
+		for scanner.Scan() {
+			line := scanner.Text()
+			m := regexp.MustCompile("\\$\\{(.*?)\\}")
+			res := m.FindAllStringSubmatch(line, 1)
+
+			if len(res) > 0 {
+				for i := range res {
+					key := strings.Split(res[i][1], ":")
+
+					if b[key[0]] != "" {
+						bt.WriteString(m.ReplaceAllLiteralString(line, b[key[0]].(string)))
+						bt.WriteString("\n")
+					}
+				}
+			} else {
+				bt.WriteString(line)
+				bt.WriteString("\n")
+			}
+		}
 	}
-	s := buf.String()
-	return s
+
+	return bt
 }
 
 // getSecret() is get secret from aws secretManager
