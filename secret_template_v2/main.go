@@ -45,8 +45,10 @@ type SecretConfig struct {
 	SecretKeys       map[string]string `yaml:"secretkeys,omitempty"`
 }
 
+// create SecretConfig Instance
 var secretConfig = SecretConfig{}
 
+// Define logger
 var myLogger *log.Logger
 
 func main() {
@@ -59,6 +61,8 @@ func main() {
 	myLogger = log.New(fpLog, "INFO: ", log.Ldate|log.Ltime|log.Lshortfile)
 
 	myLogger.Println("------- Start Replacing Secrets. -------")
+
+	// SecretConfig 읽기
 	yamlFile := readFile("secretConfig.yml")
 	err = yaml.Unmarshal([]byte(yamlFile), &secretConfig)
 	if err != nil {
@@ -69,9 +73,12 @@ func main() {
 
 	//	환경 변수를 돌면서, 값을 조회하고 처리한다.
 	for _, value := range secretConfig.Environments {
+		// getTargetFile Path
 		log.Println("target value: ", value)
 		err, targetFile, destFile := makeTargetFile(value, secretConfig.ConfigFilePrefix, secretConfig.Ext, secretConfig.TargetPath)
 		myLogger.Printf("INFO MakeTargetFile [%s, %s %s] \n", secretConfig.TargetPath, value, secretConfig.Ext, err)
+
+		// process Replace Config File if not exists error
 		if err == nil {
 			result := replaceConfigFiles(&secretConfig, targetFile, destFile)
 			myLogger.Println("INFO Replace result is ", result)
@@ -83,6 +90,8 @@ func main() {
 	myLogger.Println("------- Done Replacing Secrets. -------")
 }
 
+// makeTargetFile is make target file for reading application config
+// It returns sourceFile and backFile paths
 func makeTargetFile(environment string, configFilePrefix string, ext string, targetPath string) (error, string, string) {
 	var targetFile string
 	var destFile string
@@ -95,6 +104,7 @@ func makeTargetFile(environment string, configFilePrefix string, ext string, tar
 
 	destDir := fmt.Sprintf("%s%s", targetPath, DefaultBackDir)
 
+	// make target file
 	if environment == "default" {
 		targetFile = fmt.Sprintf("%s%s.%s", targetPath, configFilePrefix, ext)
 		destFile = fmt.Sprintf("%s%s%s.%s", targetPath, DefaultBackDir, configFilePrefix, ext)
@@ -103,11 +113,13 @@ func makeTargetFile(environment string, configFilePrefix string, ext string, tar
 		destFile = fmt.Sprintf("%s%s%s-%s.%s", targetPath, DefaultBackDir, configFilePrefix, environment, ext)
 	}
 
+	// Create Directory for saving original config file
 	if err := makeDestDirectory(destDir); err != nil {
 		log.Println(err)
 		return err, "", ""
 	}
 
+	// Check for existing a source file
 	if err := Exists(targetFile); err == nil {
 		return nil, targetFile, destFile
 	} else {
@@ -115,6 +127,7 @@ func makeTargetFile(environment string, configFilePrefix string, ext string, tar
 	}
 }
 
+// makeDestDirectory is creating destination path when it isn't exists
 func makeDestDirectory(destDir string) error {
 	if _, err := os.Stat(destDir); os.IsNotExist(err) {
 		err := os.Mkdir(destDir, 0755)
@@ -124,6 +137,7 @@ func makeDestDirectory(destDir string) error {
 	return nil
 }
 
+// Exists is check file is existsing.
 func Exists(name string) error {
 	if _, err := os.Stat(name); err != nil {
 		if os.IsNotExist(err) {
@@ -133,6 +147,7 @@ func Exists(name string) error {
 	return nil
 }
 
+// replaceConfigFiles is replace secrets values to target placehold in application.yml
 func replaceConfigFiles(secretConfig *SecretConfig, targetFile string, destFile string) bool {
 	myLogger.Println("INFO Process targetFile: ", targetFile)
 
@@ -142,6 +157,7 @@ func replaceConfigFiles(secretConfig *SecretConfig, targetFile string, destFile 
 	}
 	myLogger.Println("INFO Success reading secrets from AWS SecretsManager.")
 
+	// create mapping for replacing secrets
 	mappedSecretMap := keyMapping(keyValueMap, secretConfig.SecretKeys)
 	myLogger.Println("INFO Parsed SecretMap by SecretKeys [%v]", secretConfig.SecretKeys)
 
@@ -151,11 +167,13 @@ func replaceConfigFiles(secretConfig *SecretConfig, targetFile string, destFile 
 		myLogger.Fatalf("Error Fail to make a Template ", err)
 	}
 
+	// move original config file to backup directory
 	err = moveOriginFile(targetFile, destFile)
 	if err != nil {
 		log.Fatal(err)
 	}
 
+	// create new config file it had replaced config placeholders
 	writeFile(targetFile, resultByte)
 
 	// log.Println("result \n", resultByte)
@@ -163,6 +181,7 @@ func replaceConfigFiles(secretConfig *SecretConfig, targetFile string, destFile 
 	return true
 }
 
+// writeFile is write new config value to a new file
 func writeFile(targetFile string, result string) {
 	err := ioutil.WriteFile(targetFile, []byte(result), 0755)
 	if err != nil {
@@ -170,6 +189,7 @@ func writeFile(targetFile string, result string) {
 	}
 }
 
+// moveOriginFile is backup original config files
 func moveOriginFile(origFile string, destFile string) error {
 	err := os.Rename(origFile, destFile)
 	if err != nil {
@@ -182,6 +202,7 @@ func moveOriginFile(origFile string, destFile string) error {
 	return nil
 }
 
+// readFile is read a config file from path
 func readFile(filename string) string {
 	confFile, err := ioutil.ReadFile(filename)
 	if err != nil {
@@ -191,6 +212,7 @@ func readFile(filename string) string {
 	return string(confFile)
 }
 
+// keyMapping is mapping from secret key to config key placeholder
 func keyMapping(secretMap map[string]interface{}, configMap map[string]string) map[string]interface{} {
 	keyValueMap := make(map[string]interface{})
 
@@ -201,6 +223,7 @@ func keyMapping(secretMap map[string]interface{}, configMap map[string]string) m
 	return keyValueMap
 }
 
+// makingTemplate is replacing secret values
 func makingTemplate(a string, b map[string]interface{}) (error, string) {
 
 	log.Println("file: ", a)
