@@ -54,6 +54,7 @@ func main() {
 	myLogger.Println("------- Done Set Env Secrets. -------")
 }
 
+// extract paramegers
 func extractParameter() {
 	secretName = flag.String("s", DefaultSecretName, "<projectName>/<path1>/<path2>...")
 	region = flag.String("r", DefaultRegion, "ap-northeast-2")
@@ -61,6 +62,8 @@ func extractParameter() {
 	profile = flag.String("p", DefaultProfile, "default")
 
 	flag.Parse()
+
+	myLogger.Printf("INFO Read Parameters are -s[%s], -r[%s], -k[%s], -p[%s]\n", secretName, region, keyValue, profile)
 }
 
 // getSecret() is get secret from aws secretManager
@@ -82,26 +85,35 @@ func getSecret() (error, string) {
 		return err, ""
 	}
 
+	myLogger.Println("Success Secret values")
+
 	// Decrypts secret using the associated KMS CMK.
 	// Depending on whether the secret is a string or binary, one of these fields will be populated.
 	var secretString, decodedBinarySecret string
 	var keyValueMap map[string]interface{}
 
 	if result.SecretString != nil {
+		myLogger.Println("INFO success reading secretString from aws.")
 		secretString = *result.SecretString
 
 		if *keyValue == "" {
+
+			myLogger.Println("ERROR there are any secret key and value on aws.")
 			return nil, secretString
 		}
 
 		// b, _ := json.Marshal(secretString)
 		json.Unmarshal([]byte(secretString), &keyValueMap)
 		if keyValueMap[*keyValue] == nil {
+			myLogger.Println("ERROR there aren't any mapped secret key and value on aws.")
 			return nil, ""
 		} else {
+			myLogger.Println("INFO success finding secret key and value on aws.")
 			return nil, keyValueMap[*keyValue].(string)
 		}
 	} else {
+		myLogger.Println("INFO read secretString from aws.")
+
 		decodedBinarySecretBytes := make([]byte, base64.StdEncoding.DecodedLen(len(result.SecretBinary)))
 		len, err := base64.StdEncoding.Decode(decodedBinarySecretBytes, result.SecretBinary)
 		if err != nil {
@@ -111,14 +123,17 @@ func getSecret() (error, string) {
 		decodedBinarySecret = string(decodedBinarySecretBytes[:len])
 
 		if *keyValue == "" {
+			myLogger.Println("ERROR [Decoding] there are any secret key and value on aws. ")
 			return nil, decodedBinarySecret
 		}
 
 		// b, _ := json.Marshal(decodedBinarySecret)
 		json.Unmarshal([]byte(decodedBinarySecret), &keyValueMap)
 		if keyValueMap[*keyValue] == nil {
+			myLogger.Println("ERROR [Decoding] there aren't any mapped secret key and value on aws.")
 			return nil, ""
 		} else {
+			myLogger.Println("INFO [Decoding] success finding secret key and value on aws.")
 			return nil, keyValueMap[*keyValue].(string)
 		}
 	}
