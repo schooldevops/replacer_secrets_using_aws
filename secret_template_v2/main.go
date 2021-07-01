@@ -31,15 +31,18 @@ const DefaultSecretName = ""
 // DefaultProfile is default profile
 const DefaultProfile = "default"
 
+const DefaultBackDir = "orig/"
+
 //	SecretConfig 시크릿 설정 구조체
 type SecretConfig struct {
-	Profile      string            `yaml:"profile"`
-	Ext          string            `yaml:"ext"`
-	TargetPath   string            `yaml:"targetPath"`
-	Region       string            `yaml:"region"`
-	Secrets      string            `yaml:"secrets"`
-	Environments []string          `yaml:"environments"`
-	SecretKeys   map[string]string `yaml:"secretkeys,omitempty"`
+	Profile          string            `yaml:"profile"`
+	ConfigFilePrefix string            `yaml:"configFilePrefix"`
+	Ext              string            `yaml:"ext"`
+	TargetPath       string            `yaml:"targetPath"`
+	Region           string            `yaml:"region"`
+	Secrets          string            `yaml:"secrets"`
+	Environments     []string          `yaml:"environments"`
+	SecretKeys       map[string]string `yaml:"secretkeys,omitempty"`
 }
 
 var secretConfig = SecretConfig{}
@@ -66,35 +69,59 @@ func main() {
 
 	//	환경 변수를 돌면서, 값을 조회하고 처리한다.
 	for _, value := range secretConfig.Environments {
-		err, targetFile := makeTargetFile(value, secretConfig.Ext, secretConfig.TargetPath)
+		log.Println("target value: ", value)
+		err, targetFile, destFile := makeTargetFile(value, secretConfig.ConfigFilePrefix, secretConfig.Ext, secretConfig.TargetPath)
 		myLogger.Printf("INFO MakeTargetFile [%s, %s %s] \n", secretConfig.TargetPath, value, secretConfig.Ext, err)
 		if err == nil {
-			result := replaceConfigFiles(&secretConfig, targetFile)
+			result := replaceConfigFiles(&secretConfig, targetFile, destFile)
 			myLogger.Println("INFO Replace result is ", result)
 		} else {
-			myLogger.Fatalf("ERROR File is not exists [%s, %s]\n", value, secretConfig.Ext)
+			myLogger.Printf("ERROR File is not exists [%s, %s]\n", value, secretConfig.Ext)
 		}
 	}
 
 	myLogger.Println("------- Done Replacing Secrets. -------")
 }
 
-func makeTargetFile(environment string, ext string, targetPath string) (error, string) {
+func makeTargetFile(environment string, configFilePrefix string, ext string, targetPath string) (error, string, string) {
 	var targetFile string
+	var destFile string
 
-	prefix := "application"
-	// fmt.Println("env: ", environment, " ext: ", ext)
+	defer func() {
+		if err := recover(); err != nil {
+			fmt.Println("Recover Exception ", err)
+		}
+	}()
+
+	destDir := fmt.Sprintf("%s%s", targetPath, DefaultBackDir)
+
 	if environment == "default" {
-		targetFile = fmt.Sprintf("%s%s.%s", targetPath, prefix, ext)
+		targetFile = fmt.Sprintf("%s%s.%s", targetPath, configFilePrefix, ext)
+		destFile = fmt.Sprintf("%s%s%s.%s", targetPath, DefaultBackDir, configFilePrefix, ext)
 	} else {
-		targetFile = fmt.Sprintf("%s%s-%s.%s", targetPath, prefix, environment, ext)
+		targetFile = fmt.Sprintf("%s%s-%s.%s", targetPath, configFilePrefix, environment, ext)
+		destFile = fmt.Sprintf("%s%s%s-%s.%s", targetPath, DefaultBackDir, configFilePrefix, environment, ext)
+	}
+
+	if err := makeDestDirectory(destDir); err != nil {
+		log.Println(err)
+		return err, "", ""
 	}
 
 	if err := Exists(targetFile); err == nil {
-		return nil, targetFile
+		return nil, targetFile, destFile
 	} else {
-		return err, ""
+		return err, "", ""
 	}
+}
+
+func makeDestDirectory(destDir string) error {
+	if _, err := os.Stat(destDir); os.IsNotExist(err) {
+		err := os.Mkdir(destDir, 0755)
+		return err
+	}
+
+	return nil
 }
 
 func Exists(name string) error {
@@ -106,7 +133,7 @@ func Exists(name string) error {
 	return nil
 }
 
-func replaceConfigFiles(secretConfig *SecretConfig, targetFile string) bool {
+func replaceConfigFiles(secretConfig *SecretConfig, targetFile string, destFile string) bool {
 	myLogger.Println("INFO Process targetFile: ", targetFile)
 
 	err, keyValueMap := getSecret()
@@ -118,16 +145,47 @@ func replaceConfigFiles(secretConfig *SecretConfig, targetFile string) bool {
 	mappedSecretMap := keyMapping(keyValueMap, secretConfig.SecretKeys)
 	myLogger.Println("INFO Parsed SecretMap by SecretKeys [%v]", secretConfig.SecretKeys)
 
-	resultByte := makingTemplate(targetFile, mappedSecretMap)
-	log.Println("result \n", resultByte.String())
+	err, resultByte := makingTemplate(targetFile, mappedSecretMap)
+
+	if err != nil {
+		myLogger.Fatalf("Error Fail to make a Template ", err)
+	}
+
+	err = moveOriginFile(targetFile, destFile)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	writeFile(targetFile, resultByte)
+
+	// log.Println("result \n", resultByte)
 	myLogger.Println("INFO Done replacing config file what is %s", targetFile)
 	return true
+}
+
+func writeFile(targetFile string, result string) {
+	err := ioutil.WriteFile(targetFile, []byte(result), 0755)
+	if err != nil {
+		myLogger.Fatalf("ERROR write replaced file error %s\n", targetFile)
+	}
+}
+
+func moveOriginFile(origFile string, destFile string) error {
+	err := os.Rename(origFile, destFile)
+	if err != nil {
+		log.Fatal(err)
+		myLogger.Fatalf("ERROR move file error\n")
+		return err
+	}
+
+	myLogger.Printf("INFO move from origFile [%s] to destFile [%s]. \n", origFile, destFile)
+	return nil
 }
 
 func readFile(filename string) string {
 	confFile, err := ioutil.ReadFile(filename)
 	if err != nil {
-		myLogger.Fatalf("ERROR secretConfig read err   #%v \n", err)
+		myLogger.Fatalf("ERROR secretConfig read err %v \n", err)
 	}
 
 	return string(confFile)
@@ -138,15 +196,14 @@ func keyMapping(secretMap map[string]interface{}, configMap map[string]string) m
 
 	for key, value := range configMap {
 		keyValueMap[key] = secretMap[value]
-
-		// fmt.Println(key, value)
 	}
 
 	return keyValueMap
 }
 
-func makingTemplate(a string, b map[string]interface{}) bytes.Buffer {
+func makingTemplate(a string, b map[string]interface{}) (error, string) {
 
+	log.Println("file: ", a)
 	var bt bytes.Buffer
 
 	file, err := os.Open(a)
@@ -154,6 +211,7 @@ func makingTemplate(a string, b map[string]interface{}) bytes.Buffer {
 
 	if err != nil {
 		fmt.Println(err)
+		return err, ""
 	} else {
 		scanner := bufio.NewScanner(file)
 		for scanner.Scan() {
@@ -177,7 +235,7 @@ func makingTemplate(a string, b map[string]interface{}) bytes.Buffer {
 		}
 	}
 
-	return bt
+	return nil, bt.String()
 }
 
 // getSecret() is get secret from aws secretManager
