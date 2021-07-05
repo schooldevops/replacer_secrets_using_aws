@@ -274,10 +274,14 @@ func makingTemplate(a string, b map[string]interface{}) (error, string) {
 				for i := range res {
 					key := strings.Split(res[i][1], ":")
 
-					if b[key[0]] != "" {
+					if b[key[0]] != "" && b[key[0]] != nil {
 						bt.WriteString(m.ReplaceAllLiteralString(line, b[key[0]].(string)))
 						bt.WriteString("\n")
 						myLogger.Printf("INFO Replacing done [%s].\n", key[0])
+					} else {
+						bt.WriteString(line)
+						bt.WriteString("\n")
+						myLogger.Printf("INFO Key[%s] is not replacing target.", key[0])
 					}
 				}
 			} else {
