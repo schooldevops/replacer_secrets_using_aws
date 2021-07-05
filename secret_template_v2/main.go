@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -33,6 +34,8 @@ const DefaultProfile = "default"
 
 const DefaultBackDir = "orig/"
 
+const DefaultConfigFile = "secretConfig.yml"
+
 //	SecretConfig 시크릿 설정 구조체
 type SecretConfig struct {
 	Profile          string            `yaml:"profile"`
@@ -51,6 +54,8 @@ var secretConfig = SecretConfig{}
 // Define logger
 var myLogger *log.Logger
 
+var configFile *string
+
 func main() {
 	// 로그파일 오픈
 	fpLog, err := os.OpenFile("logfile.txt", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
@@ -62,14 +67,16 @@ func main() {
 
 	myLogger.Println("------- Start Replacing Secrets. -------")
 
+	extractParameter()
+
 	// SecretConfig 읽기
-	yamlFile := readFile("secretConfig.yml")
+	yamlFile := readFile(*configFile)
 	err = yaml.Unmarshal([]byte(yamlFile), &secretConfig)
 	if err != nil {
 		log.Fatalf("Unmarshal: %v\n", err)
 	}
 
-	myLogger.Println("INFO Read secretConfig.yml")
+	myLogger.Println("INFO Read %s", *configFile)
 
 	//	환경 변수를 돌면서, 값을 조회하고 처리한다.
 	for _, value := range secretConfig.Environments {
@@ -90,6 +97,15 @@ func main() {
 	myLogger.Println("------- Done Replacing Secrets. -------")
 }
 
+// extract paramegers
+func extractParameter() {
+	configFile = flag.String("f", DefaultConfigFile, "secretConfig.yml")
+
+	flag.Parse()
+
+	myLogger.Printf("INFO Read Parameters are -f[%s]\n", *configFile)
+}
+
 // makeTargetFile is make target file for reading application config
 // It returns sourceFile and backFile paths
 func makeTargetFile(environment string, configFilePrefix string, ext string, targetPath string) (error, string, string) {
@@ -106,11 +122,21 @@ func makeTargetFile(environment string, configFilePrefix string, ext string, tar
 
 	// make target file
 	if environment == "default" {
-		targetFile = fmt.Sprintf("%s%s.%s", targetPath, configFilePrefix, ext)
-		destFile = fmt.Sprintf("%s%s%s.%s", targetPath, DefaultBackDir, configFilePrefix, ext)
+		if ext == "" {
+			targetFile = fmt.Sprintf("%s%s", targetPath, configFilePrefix)
+			destFile = fmt.Sprintf("%s%s%s", targetPath, DefaultBackDir, configFilePrefix)
+		} else {
+			targetFile = fmt.Sprintf("%s%s.%s", targetPath, configFilePrefix, ext)
+			destFile = fmt.Sprintf("%s%s%s.%s", targetPath, DefaultBackDir, configFilePrefix, ext)
+		}
 	} else {
-		targetFile = fmt.Sprintf("%s%s-%s.%s", targetPath, configFilePrefix, environment, ext)
-		destFile = fmt.Sprintf("%s%s%s-%s.%s", targetPath, DefaultBackDir, configFilePrefix, environment, ext)
+		if ext == "" {
+			targetFile = fmt.Sprintf("%s%s-%s", targetPath, configFilePrefix, environment)
+			destFile = fmt.Sprintf("%s%s%s-%s", targetPath, DefaultBackDir, configFilePrefix, environment)
+		} else {
+			targetFile = fmt.Sprintf("%s%s-%s.%s", targetPath, configFilePrefix, environment, ext)
+			destFile = fmt.Sprintf("%s%s%s-%s.%s", targetPath, DefaultBackDir, configFilePrefix, environment, ext)
+		}
 	}
 
 	// Create Directory for saving original config file
