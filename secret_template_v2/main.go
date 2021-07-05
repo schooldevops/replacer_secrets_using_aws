@@ -10,6 +10,7 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"reflect"
 	"regexp"
 
 	"strings"
@@ -252,7 +253,8 @@ func keyMapping(secretMap map[string]interface{}, configMap map[string]string) m
 // makingTemplate is replacing secret values
 func makingTemplate(a string, b map[string]interface{}) (error, string) {
 
-	log.Println("file: ", a)
+	myLogger.Printf("INFO MakingTemplate targetFile is [%s]\n", a)
+	myLogger.Printf("INFO All replace keys are %v\n", reflect.ValueOf(b).MapKeys())
 	var bt bytes.Buffer
 
 	file, err := os.Open(a)
@@ -275,6 +277,7 @@ func makingTemplate(a string, b map[string]interface{}) (error, string) {
 					if b[key[0]] != "" {
 						bt.WriteString(m.ReplaceAllLiteralString(line, b[key[0]].(string)))
 						bt.WriteString("\n")
+						myLogger.Printf("INFO Replacing done [%s].\n", key[0])
 					}
 				}
 			} else {
