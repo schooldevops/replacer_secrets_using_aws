@@ -88,8 +88,19 @@ func main() {
 
 		// process Replace Config File if not exists error
 		if err == nil {
-			result := replaceConfigFiles(&secretConfig, targetFile, destFile)
+			result := replaceConfigFiles(&secretConfig, targetFile, destFile, value)
 			myLogger.Println("INFO Replace result is ", result)
+		} else {
+			myLogger.Printf("ERROR File is not exists [%s, %s]\n", value, secretConfig.Ext)
+		}
+
+		err, targetFile, destFile = makeTargetFile("default", secretConfig.ConfigFilePrefix, secretConfig.Ext, secretConfig.TargetPath)
+		myLogger.Printf("INFO MakeTargetFile [%s, %s %s] \n", secretConfig.TargetPath, value, secretConfig.Ext, err)
+
+		// process Replace Config File if not exists error
+		if err == nil {
+			result := replaceConfigFiles(&secretConfig, targetFile, destFile, value)
+			myLogger.Println("INFO Replace default taret result is ", result)
 		} else {
 			myLogger.Printf("ERROR File is not exists [%s, %s]\n", value, secretConfig.Ext)
 		}
@@ -175,10 +186,10 @@ func Exists(name string) error {
 }
 
 // replaceConfigFiles is replace secrets values to target placehold in application.yml
-func replaceConfigFiles(secretConfig *SecretConfig, targetFile string, destFile string) bool {
+func replaceConfigFiles(secretConfig *SecretConfig, targetFile string, destFile string, targetEnv string) bool {
 	myLogger.Println("INFO Process targetFile: ", targetFile)
 
-	err, keyValueMap := getSecret()
+	err, keyValueMap := getSecret(targetEnv)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -186,7 +197,7 @@ func replaceConfigFiles(secretConfig *SecretConfig, targetFile string, destFile 
 
 	// create mapping for replacing secrets
 	mappedSecretMap := keyMapping(keyValueMap, secretConfig.SecretKeys)
-	myLogger.Println("INFO Parsed SecretMap by SecretKeys [%v]", secretConfig.SecretKeys)
+	myLogger.Printf("INFO Parsed SecretMap by SecretKeys [%v]\n", secretConfig.SecretKeys)
 
 	err, resultByte := makingTemplate(targetFile, mappedSecretMap)
 
@@ -204,7 +215,7 @@ func replaceConfigFiles(secretConfig *SecretConfig, targetFile string, destFile 
 	writeFile(targetFile, resultByte)
 
 	// log.Println("result \n", resultByte)
-	myLogger.Println("INFO Done replacing config file what is %s", targetFile)
+	myLogger.Printf("INFO Done replacing config file what is %s\n", targetFile)
 	return true
 }
 
@@ -295,14 +306,15 @@ func makingTemplate(a string, b map[string]interface{}) (error, string) {
 }
 
 // getSecret() is get secret from aws secretManager
-func getSecret() (error, map[string]interface{}) {
+func getSecret(targetEnv string) (error, map[string]interface{}) {
 
-	myLogger.Println("INFO Load Secrets from AWS SecretsManager.")
+	targetSecrets := fmt.Sprintf("%s/%s", secretConfig.Secrets, targetEnv)
+	myLogger.Println("INFO Load Secrets from AWS SecretsManager. from: ", targetSecrets)
 	//Create a Secrets Manager client
 	svc := secretsmanager.New(session.New(),
 		aws.NewConfig().WithRegion(secretConfig.Region))
 	input := &secretsmanager.GetSecretValueInput{
-		SecretId:     aws.String(secretConfig.Secrets),
+		SecretId:     aws.String(targetSecrets),
 		VersionStage: aws.String("AWSCURRENT"), // VersionStage defaults to AWSCURRENT if unspecified
 	}
 
