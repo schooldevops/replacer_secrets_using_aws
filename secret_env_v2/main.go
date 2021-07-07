@@ -63,7 +63,7 @@ func extractParameter() {
 
 	flag.Parse()
 
-	myLogger.Printf("INFO Read Parameters are -s[%s], -r[%s], -k[%s], -p[%s]\n", secretName, region, keyValue, profile)
+	myLogger.Printf("INFO Read Parameters are -s[%s], -r[%s], -k[%s], -p[%s]\n", *secretName, *region, *keyValue, *profile)
 }
 
 // getSecret() is get secret from aws secretManager
