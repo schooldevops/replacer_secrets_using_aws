@@ -46,7 +46,8 @@ type SecretConfig struct {
 	Region         string            `yaml:"region"`
 	Secrets        string            `yaml:"secrets"`
 	Environments   []string          `yaml:"environments"`
-	Context        string            `yaml:"context"`
+	K8sHost        string            `yaml:"k8sHost"`
+	ConfigFilePath string            `yaml:"configFilePath"`
 	Namespace      string            `yaml:"namespace"`
 	SecretsName    string            `yaml:"secretsName"`
 	SecretKeys     map[string]string `yaml:"secretkeys,omitempty"`
@@ -76,7 +77,6 @@ func main() {
 	myLogger.Println("------- Start K8S Config and Secrets. -------")
 
 	extractParameter()
-	readKubeConfig()
 
 	// SecretConfig 읽기
 	yamlFile := readFile(*configFile)
@@ -86,6 +86,8 @@ func main() {
 	}
 
 	myLogger.Printf("INFO Read %s\n", *configFile)
+
+	readKubeConfig(&secretConfig)
 
 	//	환경 변수를 돌면서, 값을 조회하고 처리한다.
 	for _, value := range secretConfig.Environments {
@@ -113,7 +115,7 @@ func createSecretsInKubernetes(secretsMap map[string]interface{}, secretConfig *
 
 	myLogger.Println("INFO createSecretsInKubernetes Start")
 	// use the current context in kubeconfig
-	config, err := clientcmd.BuildConfigFromFlags("", *kubeconfig)
+	config, err := clientcmd.BuildConfigFromFlags(secretConfig.K8sHost, *kubeconfig)
 	if err != nil {
 		panic(err.Error())
 	}
@@ -213,12 +215,23 @@ func createConfigsMapInKubernetes(configsMap map[string]interface{}, secretConfi
 }
 
 // readKubeConfig is getting kubernetes config from HOME directory
-func readKubeConfig() {
-	if home := homedir.HomeDir(); home != "" {
-		kubeconfig = flag.String("kubeconfig", filepath.Join(home, ".kube", "config"), "(optional) absolute path to the kubeconfig file")
+func readKubeConfig(secretConfig *SecretConfig) {
+
+	myLogger.Printf("INFO Connect to kubernetes host: [%s], config: [%s]", secretConfig.K8sHost, secretConfig.ConfigFilePath)
+
+	if secretConfig.ConfigFilePath == "" {
+		if home := homedir.HomeDir(); home != "" {
+			kubeconfig = flag.String("kubeconfig", filepath.Join(home, ".kube", "config"), "(optional) absolute path to the kubeconfig file")
+			myLogger.Println("INFO KubeConfig from Host: ", *kubeconfig)
+		} else {
+			kubeconfig = flag.String("kubeconfig", "", "absolute path to the kubeconfig file")
+			myLogger.Println("INFO KubeConfig from another: ", *kubeconfig)
+		}
 	} else {
-		kubeconfig = flag.String("kubeconfig", "", "absolute path to the kubeconfig file")
+		kubeconfig = flag.String("kubeconfig", secretConfig.ConfigFilePath, "absolute path to the kubeconfig file")
+		myLogger.Println("INFO KubeConfig from secretConfig: ", *kubeconfig)
 	}
+
 	flag.Parse()
 }
 
