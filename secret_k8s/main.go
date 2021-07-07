@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"flag"
@@ -8,11 +9,19 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"path/filepath"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/secretsmanager"
 	"gopkg.in/yaml.v2"
+
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/client-go/util/homedir"
 )
 
 // DefaultRegion is default aws region
@@ -53,6 +62,8 @@ var myLogger *log.Logger
 
 var configFile *string
 
+var kubeconfig *string
+
 func main() {
 	// 로그파일 오픈
 	fpLog, err := os.OpenFile("logfile.txt", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
@@ -65,6 +76,7 @@ func main() {
 	myLogger.Println("------- Start K8S Config and Secrets. -------")
 
 	extractParameter()
+	readKubeConfig()
 
 	// SecretConfig 읽기
 	yamlFile := readFile(*configFile)
@@ -87,10 +99,127 @@ func main() {
 		} else {
 			fmt.Println("going to processing")
 			fmt.Println(secretsMap, configsMap)
+
+			createSecretsInKubernetes(secretsMap, &secretConfig)
+			createConfigsMapInKubernetes(configsMap, &secretConfig)
 		}
 	}
 
 	myLogger.Println("------- Done K8S Config and Secrets. -------")
+}
+
+func createSecretsInKubernetes(secretsMap map[string]interface{}, secretConfig *SecretConfig) {
+	// fmt.Println("Secrets: ", secretsMap)
+
+	myLogger.Println("INFO createSecretsInKubernetes Start")
+	// use the current context in kubeconfig
+	config, err := clientcmd.BuildConfigFromFlags("", *kubeconfig)
+	if err != nil {
+		panic(err.Error())
+	}
+
+	// create the clientset
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		panic(err.Error())
+	}
+
+	myLogger.Println("INFO Init kubernetes client for setting a Secrets")
+
+	secrets := make(map[string][]byte, 0)
+
+	for key, value := range secretsMap {
+		secrets[key] = []byte(fmt.Sprintf("%v", value))
+		fmt.Printf("key: %s, value: %v\n", key, value)
+	}
+
+	secretMap := corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      secretConfig.SecretsName,
+			Namespace: secretConfig.Namespace,
+		},
+		Data: secrets,
+	}
+
+	myLogger.Println("INFO Set Config Value")
+
+	var cm *corev1.Secret
+	if _, err := clientset.CoreV1().Secrets(secretConfig.Namespace).Get(context.TODO(), secretConfig.ConfigMapsName, metav1.GetOptions{}); errors.IsNotFound(err) {
+		cm, _ = clientset.CoreV1().Secrets(secretConfig.Namespace).Create(context.TODO(), &secretMap, metav1.CreateOptions{})
+		fmt.Println("CreateConfigMap: ", cm)
+		myLogger.Println("INFO Create Config Map Done")
+	} else {
+		cm, _ = clientset.CoreV1().Secrets(secretConfig.Namespace).Update(context.TODO(), &secretMap, metav1.UpdateOptions{})
+		fmt.Println("UdateConfigMap: ", cm)
+		myLogger.Println("INFO Update Config Map Done")
+
+	}
+
+	myLogger.Println("INFO createSecretsInKubernetes Done")
+}
+
+func createConfigsMapInKubernetes(configsMap map[string]interface{}, secretConfig *SecretConfig) {
+	// fmt.Println("ConfigsMap: ", configsMap)
+
+	myLogger.Println("INFO createConfigsMapInKubernetes Start")
+	// use the current context in kubeconfig
+	config, err := clientcmd.BuildConfigFromFlags("", *kubeconfig)
+	if err != nil {
+		panic(err.Error())
+	}
+
+	// create the clientset
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		panic(err.Error())
+	}
+
+	myLogger.Println("INFO Init kubernetes client for setting a ConfigMap")
+
+	configMapData := make(map[string]string, 0)
+
+	for key, value := range configsMap {
+		configMapData[key] = fmt.Sprintf("%v", value)
+		fmt.Printf("key: %s, value: %v\n", key, value)
+	}
+
+	configMap := corev1.ConfigMap{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "ConfigMap",
+			APIVersion: "v1",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      secretConfig.ConfigMapsName,
+			Namespace: secretConfig.Namespace,
+		},
+		Data: configMapData,
+	}
+
+	myLogger.Println("INFO Set Config Value")
+
+	var cm *corev1.ConfigMap
+	if _, err := clientset.CoreV1().ConfigMaps(secretConfig.Namespace).Get(context.TODO(), secretConfig.ConfigMapsName, metav1.GetOptions{}); errors.IsNotFound(err) {
+		cm, _ = clientset.CoreV1().ConfigMaps(secretConfig.Namespace).Create(context.TODO(), &configMap, metav1.CreateOptions{})
+		fmt.Println("CreateConfigMap: ", cm)
+		myLogger.Println("INFO Create Config Map Done")
+	} else {
+		cm, _ = clientset.CoreV1().ConfigMaps(secretConfig.Namespace).Update(context.TODO(), &configMap, metav1.UpdateOptions{})
+		fmt.Println("UdateConfigMap: ", cm)
+		myLogger.Println("INFO Update Config Map Done")
+
+	}
+
+	myLogger.Println("INFO createConfigsMapInKubernetes Done")
+}
+
+// readKubeConfig is getting kubernetes config from HOME directory
+func readKubeConfig() {
+	if home := homedir.HomeDir(); home != "" {
+		kubeconfig = flag.String("kubeconfig", filepath.Join(home, ".kube", "config"), "(optional) absolute path to the kubeconfig file")
+	} else {
+		kubeconfig = flag.String("kubeconfig", "", "absolute path to the kubeconfig file")
+	}
+	flag.Parse()
 }
 
 // extract paramegers
