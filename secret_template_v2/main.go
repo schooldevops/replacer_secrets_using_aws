@@ -45,7 +45,7 @@ type SecretConfig struct {
 	TargetPath       string            `yaml:"targetPath"`
 	Region           string            `yaml:"region"`
 	Secrets          string            `yaml:"secrets"`
-	Environments     []string          `yaml:"environments"`
+	Environments     string            `yaml:"environments"`
 	SecretKeys       map[string]string `yaml:"secretkeys,omitempty"`
 }
 
@@ -56,6 +56,8 @@ var secretConfig = SecretConfig{}
 var myLogger *log.Logger
 
 var configFile *string
+
+var envFlag *string
 
 func main() {
 	// 로그파일 오픈
@@ -79,31 +81,32 @@ func main() {
 
 	myLogger.Println("INFO Read %s", *configFile)
 
+	if *envFlag != "" {
+		secretConfig.Environments = *envFlag
+	}
 	//	환경 변수를 돌면서, 값을 조회하고 처리한다.
-	for _, value := range secretConfig.Environments {
-		// getTargetFile Path
-		log.Println("target value: ", value)
-		err, targetFile, destFile := makeTargetFile(value, secretConfig.ConfigFilePrefix, secretConfig.Ext, secretConfig.TargetPath)
-		myLogger.Printf("INFO MakeTargetFile [%s, %s %s] \n", secretConfig.TargetPath, value, secretConfig.Ext, err)
+	// getTargetFile Path
+	log.Println("target value: ", secretConfig.Environments)
+	err, targetFile, destFile := makeTargetFile(secretConfig.Environments, secretConfig.ConfigFilePrefix, secretConfig.Ext, secretConfig.TargetPath)
+	myLogger.Printf("INFO MakeTargetFile [%s, %s %s] \n", secretConfig.TargetPath, secretConfig.Environments, secretConfig.Ext, err)
 
-		// process Replace Config File if not exists error
-		if err == nil {
-			result := replaceConfigFiles(&secretConfig, targetFile, destFile, value)
-			myLogger.Println("INFO Replace result is ", result)
-		} else {
-			myLogger.Printf("ERROR File is not exists [%s, %s]\n", value, secretConfig.Ext)
-		}
+	// process Replace Config File if not exists error
+	if err == nil {
+		result := replaceConfigFiles(&secretConfig, targetFile, destFile, secretConfig.Environments)
+		myLogger.Println("INFO Replace result is ", result)
+	} else {
+		myLogger.Printf("ERROR File is not exists [%s, %s]\n", secretConfig.Environments, secretConfig.Ext)
+	}
 
-		err, targetFile, destFile = makeTargetFile("default", secretConfig.ConfigFilePrefix, secretConfig.Ext, secretConfig.TargetPath)
-		myLogger.Printf("INFO MakeTargetFile [%s, %s %s] \n", secretConfig.TargetPath, value, secretConfig.Ext, err)
+	err, targetFile, destFile = makeTargetFile("default", secretConfig.ConfigFilePrefix, secretConfig.Ext, secretConfig.TargetPath)
+	myLogger.Printf("INFO MakeTargetFile [%s, %s %s] \n", secretConfig.TargetPath, secretConfig.Environments, secretConfig.Ext, err)
 
-		// process Replace Config File if not exists error
-		if err == nil {
-			result := replaceConfigFiles(&secretConfig, targetFile, destFile, value)
-			myLogger.Println("INFO Replace default taret result is ", result)
-		} else {
-			myLogger.Printf("ERROR File is not exists [%s, %s]\n", value, secretConfig.Ext)
-		}
+	// process Replace Config File if not exists error
+	if err == nil {
+		result := replaceConfigFiles(&secretConfig, targetFile, destFile, secretConfig.Environments)
+		myLogger.Println("INFO Replace default taret result is ", result)
+	} else {
+		myLogger.Printf("ERROR File is not exists [%s, %s]\n", secretConfig.Environments, secretConfig.Ext)
 	}
 
 	myLogger.Println("------- Done Replacing Secrets. -------")
@@ -112,6 +115,7 @@ func main() {
 // extract paramegers
 func extractParameter() {
 	configFile = flag.String("f", DefaultConfigFile, "secretConfig.yml")
+	envFlag = flag.String("e", "", "[dev|stg|prod]")
 
 	flag.Parse()
 
